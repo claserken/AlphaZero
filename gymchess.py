@@ -7,9 +7,9 @@ import numpy as np
 import random 
 
 env = gym.make('ChessAlphaZero-v0')
-reseted = env.reset()
-print(reseted.shape)
-done = False
+env.reset()
+print(env.decode(0))
+
 
 # while not done:
 #     action = random.sample(env.legal_actions, 1)
