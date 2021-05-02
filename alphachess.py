@@ -13,6 +13,7 @@ from tensorflow.keras import layers
 import numpy as np
 import os
 from tensorflow.keras.models import load_model
+from tensorflow.python.keras.mixed_precision.experimental import policy
 
 sys.setrecursionlimit(1500)
 
@@ -51,9 +52,11 @@ class Node:
 
     # Returns a copy of the board with the move made
     def make_move(self, m):
+        # print("make_move() called")
         newboard = copy.deepcopy(self.env)
         # print(m)
         encoding, reward, done, _ = newboard.step(m)
+        # print('reward: {}'.format(reward))
         return newboard, encoding, reward, done
 
     def policy_component(self, output):
@@ -67,21 +70,30 @@ class Node:
 
     # Return propQ, after expanding OR continuing tree search
     def get_propQ(self, depth=0):
+        self.n += 1
         # print(depth)
         # If game ended
+        # print(self.env.render(mode="unicode"))
         if self.outcome is not None:
-            return -self.outcome
+            print("depth: {}".format(depth))
+            return 1
 
+        # print(depth)
         # First time; run network, store policy and value, return value
         if not self.visited:
             # print("First time")
             # visitedList = list(map(lambda e: e.visited, self.children))
             # print(visitedList)
-            self.network_output = old_bobby(self.board_encoding.reshape((1, 8, 8, 119)))
+            # self.network_output = old_bobby(self.board_encoding.reshape((1, 8, 8, 119)))
             self.visited = True
             # print(self.network_output)
-            self.q = self.network_output[0][-1] # Q is from this node's perspective which is incorporated into state
-            self.n += 1
+            # self.q = self.network_output[0][-1] # Q is from this node's perspective which is incorporated into state
+            self.q = 0
+           # try:
+            #    print(self.env.decode(self.last_move))
+            #except:
+             #   print("error")
+            #print(depth)
             return -self.q
         # Second time; expand
         # print("Second time")
@@ -90,10 +102,14 @@ class Node:
         #     visitedList.append(child.visited)
         # print(visitedList)
         if not self.children:
+            # print("if there are no children")
             legal_actions = self.env.legal_actions
             # print(self.policy_component(self.network_output[0]).size)
             # print(legal_actions)
-            policy = self.policy_component(self.network_output[0])[legal_actions]
+
+            # policy = self.policy_component(self.network_output[0])[legal_actions]
+            policy = np.array([1.0]*len(legal_actions))/len(legal_actions)
+
             # policy = filter(isValidMove, (self.network_output[0])
             # print(policy)    
             for m, p in zip(legal_actions, policy):
@@ -106,16 +122,23 @@ class Node:
         # print(visitedList)
         bestChild = None
         bestU = -float("inf")
+        #print((len(self.children), self.outcome))
         for child in self.children:
             u = child.calcU()
+            # print("Last move: ", child.last_move)
+            # print("U-Val: ", u)
+            # if child.last_move == self.env.encode(chess.Move.from_uci("a1f1")):
+            #     print("Hit a1f1")
+            #     print(child.turn)
+            #     print(child.outcome)
+            #     exit()
             if u > bestU:  # Randomize ties later? Right now just keeps the incumbent bestChild.
                 bestChild = child
                 bestU = u
         
         propQ = bestChild.get_propQ(depth+1)
         self.q = (self.q*self.n + propQ)/(self.n + 1)
-        self.n += 1
-        return propQ
+        return -propQ
         
     def addChild(self, move, p):
         env, encoding, reward, done = self.make_move(move)
@@ -126,7 +149,9 @@ class Node:
         return child
     
     def calcU(self):
-        return self.q + C * self.p * np.sqrt(self.parent.n - 1)/(1+self.n)
+        if self.outcome is not None:
+            return 1
+        return -self.q + C * self.p * np.sqrt(self.parent.n - 1)/(1+self.n)
 
 class AlphaChess:
     def __init__(self, env, encoding):
@@ -137,17 +162,22 @@ class AlphaChess:
         self.rootNode.parent = None
         
     def get_action_probabilistic(self, iterations):
-        for _ in range(iterations):
+        for itCount in range(iterations):
+            if itCount % 20 == 0:
+                print(itCount)
             self.rootNode.get_propQ()
 
         rand = random.uniform(0,1)
         prob_cumulative = 0
         the_chosen_one = None
         for child in self.rootNode.children:
-            prob_cumulative += child.n / (self.rootNode.n - 1)
-            if prob_cumulative > rand:
+            prob = child.n / (self.rootNode.n - 1)
+            # prob_cumulative += prob
+            print((self.rootNode.env.decode(child.last_move), prob))
+            if prob > prob_cumulative:
+                prob_cumulative = prob
                 the_chosen_one = child
-                break
+                # break # commented out for debugging
             
         self.choose(the_chosen_one)
         return self.rootNode.last_move
@@ -165,7 +195,8 @@ class AlphaChess:
 
 def let_the_games_begin():
     env = gym.make('ChessAlphaZero-v0')
-    encoding = env.reset()
+    encoding = env.reset(newBoard=chess.Board(fen="2r5/2p2k1p/pqp1RB2/2r5/PbQ2N2/1P3PP1/2P3P1/4R2K w - - 1 0"))
+    print(env.render(mode="unicode"))
     #env.step(env.encode(chess.Move.from_uci('e2e4')))
     #env.step(env.encode(chess.Move.from_uci('e7e5')))
     #env.step(env.encode(chess.Move.from_uci('d1h5')))
@@ -197,7 +228,7 @@ def let_the_games_begin():
     # print(env.compute_reward)
     player = AlphaChess(env, encoding)
     #p2 = AlphaChess()
-    print(env.decode(player.get_action_probabilistic(1000)))
+    print(env.decode(player.get_action_probabilistic(5000)))
         
 let_the_games_begin()
 # while not done:
